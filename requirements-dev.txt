@@ -1,0 +1,7 @@
+-r requirements.txt
+pytest>=6.2.5
+pytest-cov>=2.12.1
+black>=21.6b0
+flake8>=3.9.2
+mypy>=0.910
+aiohttp>=3.8.0 
