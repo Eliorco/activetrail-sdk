@@ -4,16 +4,18 @@ An unofficial Python SDK for the [ActiveTrail](https://www.activetrail.com/) ema
 
 ## Features
 
-- Synchronous and asynchronous API clients
 - Complete coverage of ActiveTrail API endpoints:
   - Contacts management
-  - Campaigns 
-  - Transactional emails
-  - SMS messages
+  - Email campaigns
+  - SMS campaigns 
+  - Operational emails
+  - Operational SMS messages
   - Webhooks
-- Proper error handling
+  - Templates
+- Proper error handling with specific exception types
 - Type hints for better IDE support
-- Comprehensive test suite
+- Comprehensive documentation
+- Clean, Pythonic API
 
 ## Installation
 
@@ -30,7 +32,7 @@ from active_trail import ActiveTrailClient
 client = ActiveTrailClient(api_key="your_api_key")
 
 # Get contacts
-contacts = client.contacts.list(params={"limit": 10})
+contacts = client.contacts.list(limit=10)
 print(contacts)
 
 # Create a contact
@@ -41,41 +43,80 @@ new_contact = client.contacts.create({
     "phone": "0512345678"  # Israeli phone format
 })
 
-# Send a transactional email
-response = client.messages.send_email({
-    "subject": "Welcome!",
-    "html_content": "<p>Thank you for signing up!</p>",
-    "recipients": [{"email": "recipient@example.com", "name": "Recipient Name"}],
-    "sender": {
-        "email": "sender@example.com",
-        "name": "Sender Name"
-    }
+# Send an operational email
+response = client.operational_messages.send_email(
+    subject="Welcome!",
+    html_content="<p>Thank you for signing up!</p>",
+    recipients=[{"email": "recipient@example.com", "name": "Recipient Name"}],
+    sender_email="sender@example.com",
+    sender_name="Sender Name"
+)
+
+# Send an SMS message
+response = client.operational_messages.send_sms(
+    message="Your verification code is 123456",
+    recipients=["0512345678"],
+    sender_id="YourBrand"
+)
+
+# Create and schedule an email campaign
+campaign = client.email_campaigns.create({
+    "name": "Monthly Newsletter",
+    "subject": "Our Latest Updates",
+    "html_content": "<h1>Monthly Newsletter</h1><p>Hello from our team!</p>",
+    "groups": ["group_id_1", "group_id_2"],
+    "from_email": "newsletter@example.com",
+    "from_name": "Your Brand"
+})
+
+# Schedule the campaign for tomorrow
+import datetime
+tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
+client.email_campaigns.schedule(campaign["id"], {
+    "send_time": tomorrow.isoformat(),
+    "time_zone": "Asia/Jerusalem"
 })
 ```
 
-## Async Usage
+## Module Structure
+
+The SDK is organized into specialized modules:
+
+- `contacts.py` - Manage contacts and their properties
+- `email_campaigns.py` - Create and manage email campaigns
+- `sms_campaigns.py` - Create and manage SMS campaigns 
+- `operational_messages.py` - Send transactional emails and SMS
+- `webhooks.py` - Manage webhook subscriptions
+- `campaigns.py` - Base campaign functionality and templates
+- `messages.py` - Base message functionality
+
+## Error Handling
+
+The SDK provides specific exception types for different error scenarios:
 
 ```python
-import asyncio
-from active_trail.client import AsyncActiveTrailClient
+from active_trail import ActiveTrailClient
+from active_trail.exceptions import (
+    ActiveTrailError,  # Base exception
+    AuthenticationError,  # Authentication issues
+    RateLimitError,  # API rate limit exceeded
+    ValidationError,  # Invalid request data
+    NotFoundError,  # Resource not found
+    ServerError  # Server-side errors
+)
 
-async def main():
-    # Initialize the async client
-    client = AsyncActiveTrailClient(api_key="your_api_key")
-    
-    try:
-        # Setup the client
-        await client.setup()
-        
-        # Get contacts
-        contacts = await client.get("contacts")
-        print(contacts)
-    finally:
-        # Always close the client
-        await client.close()
+client = ActiveTrailClient(api_key="your_api_key")
 
-# Run the async function
-asyncio.run(main())
+try:
+    contacts = client.contacts.list()
+except AuthenticationError:
+    print("Check your API key")
+except RateLimitError:
+    print("Rate limit exceeded, try again later")
+except ValidationError as e:
+    print(f"Invalid request: {e}")
+except ActiveTrailError as e:
+    print(f"An error occurred: {e}")
 ```
 
 ## Documentation
@@ -103,4 +144,4 @@ MIT
 
 ## Contributing
 
-Contributions are more then welcome! Please feel free to join the effort, by sending a pull request. 
+Contributions are more than welcome! Please feel free to join the effort by sending a pull request. 
