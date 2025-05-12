@@ -4,7 +4,7 @@ ActiveTrail SDK - Unofficial SDK for ActiveTrail service.
 This package provides a simple, Pythonic interface to the ActiveTrail API.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 from .client import ActiveTrailClient
 from .contacts import ContactsAPI
