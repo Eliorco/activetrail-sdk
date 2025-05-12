@@ -59,7 +59,7 @@ class GroupContactDTO(BaseDTO):
     """
     Group contact data transfer object.
     """
-    email: str
+    sms: str
 
 
 @dataclass
@@ -84,7 +84,7 @@ class GroupAddContactDTO(BaseDTO):
     Data transfer object for adding a contact to a group.
     """
     group_id: int
-    email: str
+    sms: str
     
     _api_field_mapping: ClassVar[Dict[str, str]] = {
         'group_id': 'groupId'
@@ -97,7 +97,7 @@ class GroupAddMultipleContactsDTO(BaseDTO):
     Data transfer object for adding multiple contacts to a group.
     """
     group_id: int
-    emails: List[str]
+    sms: List[str]
     
     _api_field_mapping: ClassVar[Dict[str, str]] = {
         'group_id': 'groupId'
@@ -110,7 +110,7 @@ class GroupRemoveContactDTO(BaseDTO):
     Data transfer object for removing a contact from a group.
     """
     group_id: int
-    email: str
+    sms: str
     
     _api_field_mapping: ClassVar[Dict[str, str]] = {
         'group_id': 'groupId'
@@ -123,7 +123,7 @@ class GroupRemoveMultipleContactsDTO(BaseDTO):
     Data transfer object for removing multiple contacts from a group.
     """
     group_id: int
-    emails: List[str]
+    sms: List[str]
     
     _api_field_mapping: ClassVar[Dict[str, str]] = {
         'group_id': 'groupId'
