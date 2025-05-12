@@ -166,3 +166,5 @@ credentials.json
 secrets/ 
 README_*
 devdocs/
+
+tets_run.py
