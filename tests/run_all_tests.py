@@ -24,6 +24,7 @@ from test_base_api import (
 from test_groups import TestGroupsAPI
 from test_contacts import TestContactsAPI
 from test_utils import TestUtils
+from test_sms_campaigns import TestSMSCampaignsAPI
 
 
 def create_test_suite():
@@ -41,6 +42,7 @@ def create_test_suite():
     suite.addTests(loader.loadTestsFromTestCase(TestGroupsAPI))
     suite.addTests(loader.loadTestsFromTestCase(TestContactsAPI))
     suite.addTests(loader.loadTestsFromTestCase(TestUtils))
+    suite.addTests(loader.loadTestsFromTestCase(TestSMSCampaignsAPI))
     
     return suite
 

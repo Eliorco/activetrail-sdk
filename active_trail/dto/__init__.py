@@ -31,7 +31,8 @@ from .campaigns import (
 # SMS Campaigns
 from .sms_campaigns import (
     SMSCampaignDTO,
-    SMSCampaignResponseDTO,
+    ApiSmsCampaignInfoCampaign,
+    ApiSmsCampaignInfoCampaignList,
     SMSCampaignScheduleDTO,
     SMSCampaignTestDTO,
     SMSCampaignSendDTO,
@@ -39,7 +40,14 @@ from .sms_campaigns import (
     SMSCampaignRecipientsRequestDTO,
     ApiSmsCampaignSegment,
     SMSCampaignSchedulingDTO,
-    CampaignScheduleBaseDTO
+    CampaignScheduleBaseDTO,
+    ApiSMSMobileDTO,
+    ApiSMSCampaignDetailsDTO,
+    ApiSmsCampaignSchedulingDTO,
+    SMSOperationalMessageDTO,
+    SMSOperationalMessageResponseDTO,
+    SMSCampaignReportDTO,
+    ApiSmsCampaignOverviewInfo
 )
 
 # Groups

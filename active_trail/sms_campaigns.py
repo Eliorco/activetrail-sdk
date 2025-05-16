@@ -2,30 +2,27 @@
 ActiveTrail SMS Campaigns API implementation.
 """
 
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Type, TypeVar
+from datetime import datetime
+import logging
+from pydantic import ValidationError
 from .base_api import CampaignBaseAPI
 from .dto.sms_campaigns import (
+    BaseDTO,
     SMSCampaignDTO,
-    SMSCampaignResponseDTO,
-    SMSCampaignScheduleDTO,
-    SMSCampaignTestDTO,
-    SMSCampaignSendDTO,
-    SMSCampaignStatisticsDTO,
-    SMSCampaignRecipientsRequestDTO,
+    ApiSmsCampaignInfoCampaign,
+    ApiSmsCampaignInfoCampaignList,
     SMSCampaignSchedulingDTO,
+    ApiSmsCampaignSegment,
     ApiSMSMobileDTO,
     ApiSMSCampaignDetailsDTO,
     ApiSmsCampaignSchedulingDTO,
     SMSOperationalMessageDTO,
-    SMSOperationalMessageResponseDTO,
-    SMSCampaignReportDTO,
-    ApiSmsCampaignOverviewInfo
-)
-from .dto.campaigns import (
-    CampaignListRequestDTO,
-    CampaignDuplicateRequestDTO
+    SMSOperationalMessageResponseDTO
 )
 
+logger = logging.getLogger(__name__)
+T = TypeVar('T', bound=BaseDTO)
 
 class SMSCampaignsAPI(CampaignBaseAPI):
     """SMS Campaigns API handling for ActiveTrail."""
@@ -46,71 +43,146 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             ```
         """
         super().__init__(client, "smscampaign")
+        logger.debug("SMS Campaigns API initialized")
     
-    def list(
+    def _validate_and_convert(self, data: Union[Dict[str, Any], T], model_class: Type[T]) -> Dict[str, Any]:
+        """
+        Validate the input data against the specified model class and convert it to a dictionary.
+        
+        Args:
+            data: Input data (either a dictionary or a Pydantic model)
+            model_class: The Pydantic model class to validate against
+            
+        Returns:
+            Validated data as a dictionary ready to be sent to the API
+        """
+        try:
+            if isinstance(data, dict):
+                # Validate against the model
+                validated_data = model_class(**data)
+                return validated_data.to_dict()
+            elif isinstance(data, model_class):
+                # Already a valid model, just convert to dict
+                return data.to_dict()
+            else:
+                raise TypeError(f"Expected dict or {model_class.__name__}, got {type(data).__name__}")
+        except ValidationError as e:
+            logger.error(f"Validation error for {model_class.__name__}: {e}")
+            raise
+    
+    def get_campaigns(
         self,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None,
-        status: Optional[str] = None,
-        campaign_type: Optional[int] = None,
-        from_date: Optional[str] = None,
-        to_date: Optional[str] = None
+        is_include_not_sent: Optional[bool] = False,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        search_term: Optional[str] = None,
+        filter_type: Optional[int] = 0,
+        page: Optional[int] = 1,
+        limit: Optional[int] = 20
     ) -> Dict[str, Any]:
         """
-        Get a list of SMS campaigns.
+        Get account's SMS campaigns (including operational SMS).
         
         Args:
-            limit: Maximum number of campaigns to retrieve
-            offset: Offset for pagination
-            status: Filter by campaign status
-            campaign_type: Filter by campaign type
-            from_date: Filter by creation date (from) in ISO format
-            to_date: Filter by creation date (to) in ISO format
+            is_include_not_sent: Whether to include campaigns that weren't sent. Default is false.
+            from_date: The start date the campaign was last updated
+            to_date: The end date the campaign was last updated
+            search_term: Search by campaign name/partial name
+            filter_type: Filter by campaign's type: All types (0), Regular (1), Test (2), 
+                         Transactional/Operational (3). Default is 0.
+            page: Get a specific page (1-based index)
+            limit: Limit the number of items in results (1-100). Default is 20.
             
         Returns:
-            Dictionary containing SMS campaigns data
+            Dictionary containing the ApiSmsCampaignInfoCampaignList with campaigns data
             
         Example:
             ```python
-            # Get a list of SMS campaigns
-            campaigns = client.sms_campaigns.list(limit=20)
-            for campaign in campaigns.get('campaigns', []):
-                print(f"Campaign: {campaign['name']}")
+            # Get campaigns from the last month
+            from datetime import datetime, timedelta
+            
+            from_date = datetime.now() - timedelta(days=30)
+            to_date = datetime.now()
+            
+            # Get list of SMS campaigns
+            response = client.sms_campaigns.get_campaigns(
+                is_include_not_sent=True,
+                from_date=from_date,
+                to_date=to_date,
+                search_term="Promotion",
+                filter_type=1,  # Regular campaigns
+                page=1,
+                limit=50
+            )
+            
+            # Display the campaigns
+            for campaign in response['sms_campaign']:
+                print(f"ID: {campaign['id']}, Name: {campaign['name']}, Status: {campaign['status_name']}")
             ```
         """
-        request = CampaignListRequestDTO(
-            limit=limit,
-            offset=offset,
-            status=status,
-            campaign_type=campaign_type,
-            from_date=from_date,
-            to_date=to_date
-        )
+        logger.info(f"Getting SMS campaigns from {from_date} to {to_date} with filter_type={filter_type}")
         
-        return self.client.get(f"{self.resource_path}", params=request.to_dict())
+        params = {
+            'IsIncludeNotSent': is_include_not_sent
+        }
+        
+        if from_date:
+            params['FromDate'] = from_date.isoformat()
+        
+        if to_date:
+            params['ToDate'] = to_date.isoformat()
+        
+        if search_term:
+            params['SearchTerm'] = search_term
+        
+        if filter_type is not None:
+            params['FilterType'] = filter_type
+        
+        if page:
+            params['Page'] = page
+        
+        if limit:
+            params['Limit'] = limit
+        
+        logger.debug(f"Request parameters: {params}")
+        
+        response = self.client.get(f"{self.resource_path}/Campaign", params=params)
+        logger.debug(f"Retrieved {response.get('total_items', 0)} campaigns")
+        return response
     
-    def get(self, campaign_id: int) -> Dict[str, Any]:
+    def get_campaign(self, campaign_id: int) -> Dict[str, Any]:
         """
-        Get information about a specific SMS campaign.
+        Get details of a specific SMS campaign by its ID.
         
         Args:
-            campaign_id: The ID of the SMS campaign
+            campaign_id: SMS campaign ID
             
         Returns:
-            SMS campaign data
+            SMS campaign data as ApiSmsCampaignInfoCampaign
             
         Example:
             ```python
-            # Get a specific SMS campaign
-            campaign = client.sms_campaigns.get(123)
-            print(f"Campaign name: {campaign['name']}")
+            # Get SMS campaign details
+            campaign_id = 123
+            campaign = client.sms_campaigns.get_campaign(campaign_id)
+            
+            # Display campaign details
+            print(f"Campaign Name: {campaign['name']}")
+            print(f"Content: {campaign['content']}")
+            print(f"From: {campaign['from_name']}")
+            print(f"Status: {campaign['status_name']}")
+            print(f"Total Sent: {campaign['total_sent']}")
             ```
         """
-        return self.client.get(f"{self.resource_path}/Campaign/{campaign_id}")
+        logger.info(f"Getting SMS campaign with ID {campaign_id}")
+        
+        response = self.client.get(f"{self.resource_path}/Campaign/{campaign_id}")
+        logger.debug(f"Retrieved campaign: {response.get('name')}")
+        return response
     
-    def create(self, campaign: Union[SMSCampaignDTO, Dict[str, Any]]) -> Dict[str, Any]:
+    def create(self, campaign: Union[Dict[str, Any], SMSCampaignDTO]) -> Dict[str, Any]:
         """
-        Create a new SMS campaign.
+        Create and return a new SMS campaign.
         
         Args:
             campaign: SMSCampaignDTO object or dictionary with campaign data
@@ -118,8 +190,10 @@ class SMSCampaignsAPI(CampaignBaseAPI):
                   - name: SMS campaign name (internal use only)
                   - content: SMS content
                   - unsubscribe_text: Unsubscribe text
-                  - segment: Campaign segmentation (groups, exclude_groups)
+                  - segment: Campaign segmentation (group_ids, restricated_group_ids)
+                    Can be a dictionary or ApiSmsCampaignSegment object
                   - scheduling: Campaign scheduling information
+                    Can be a dictionary or SMSCampaignSchedulingDTO object
                 Optional fields:
                   - from_name: From name (sender name, up to 11 English letters, no special chars)
                   - can_unsubscribe: If true, adds unsubscription link
@@ -131,22 +205,32 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             
         Example:
             ```python
-            # Create a new SMS campaign using a DTO
-            from active_trail.dto.sms_campaigns import SMSCampaignDTO, SMSCampaignSegmentDTO, SMSCampaignSchedulingDTO
+            from active_trail import ActiveTrailClient
+            from active_trail.dto.sms_campaigns import (
+                SMSCampaignDTO, 
+                ApiSmsCampaignSegment, 
+                SMSCampaignSchedulingDTO
+            )
             from datetime import datetime, timedelta
+            
+            # Initialize the client
+            client = ActiveTrailClient(api_key="your_api_key")
             
             # Schedule for tomorrow
             tomorrow = datetime.now() + timedelta(days=1)
             
-            # Create segment and scheduling objects
-            segment = SMSCampaignSegmentDTO(
-                groups=[123, 456],
-                exclude_groups=[789]
+            # Create segment object
+            segment = ApiSmsCampaignSegment(
+                group_ids=[123, 456],
+                restricated_group_ids=[789],
+                mailing_list_id=None,
+                limit_amount=None
             )
             
+            # Create scheduling object
             scheduling = SMSCampaignSchedulingDTO(
                 scheduled_date=tomorrow,
-                scheduled_time_zone="50",
+                scheduled_time_zone="Israel",
                 is_sent=False
             )
             
@@ -157,297 +241,166 @@ class SMSCampaignsAPI(CampaignBaseAPI):
                 unsubscribe_text="Reply STOP to unsubscribe",
                 segment=segment,
                 scheduling=scheduling,
-                from_name="YourBrand",
+                from_name="MyBrand",
                 can_unsubscribe=True,
                 is_link_tracking=True
             )
             
-            new_campaign = client.sms_campaigns.create(campaign)
-            print(f"Created campaign with ID: {new_campaign['id']}")
+            # Create the campaign
+            response = client.sms_campaigns.create(campaign)
+            print(f"Created campaign with ID: {response['id']}")
+            
+            # Or you can use dictionaries directly
+            campaign_dict = {
+                "name": "Summer Sale SMS",
+                "content": "Get 20% off with code SUMMER20",
+                "unsubscribe_text": "Reply STOP to unsubscribe",
+                "segment": {
+                    "group_ids": [123, 456],
+                    "restricated_group_ids": [789]
+                },
+                "scheduling": {
+                    "scheduled_date": tomorrow.isoformat(),
+                    "scheduled_time_zone": "Israel",
+                    "is_sent": False
+                },
+                "from_name": "MyBrand",
+                "can_unsubscribe": True,
+                "is_link_tracking": True
+            }
+            
+            response = client.sms_campaigns.create(campaign_dict)
             ```
         """
-        if isinstance(campaign, SMSCampaignDTO):
-            campaign_data = campaign.to_dict()
+        # Get the name for logging - handle both dict and object case
+        if isinstance(campaign, dict):
+            campaign_name = campaign.get('name', 'unnamed')
         else:
-            campaign_data = campaign
+            campaign_name = getattr(campaign, 'name', 'unnamed')
             
-        return self.client.post(f"{self.resource_path}/Campaign", json=campaign_data)
+        logger.info(f"Creating new SMS campaign: {campaign_name}")
+        
+        campaign_data = self._validate_and_convert(campaign, SMSCampaignDTO)
+        logger.debug(f"Validated campaign data: {campaign_data}")
+        
+        response = self.client.post(f"{self.resource_path}/Campaign", json=campaign_data)
+        logger.info(f"Created SMS campaign with ID: {response.get('id')}")
+        return response
     
-    def update(
-        self,
-        campaign_id: int,
-        campaign: Union[SMSCampaignDTO, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+    def update(self, campaign: Union[Dict[str, Any], SMSCampaignDTO]) -> Dict[str, Any]:
         """
-        Update an existing SMS campaign.
+        Update an existing SMS campaign (whether it was sent or not).
         
         Args:
-            campaign_id: The ID of the SMS campaign to update
             campaign: SMSCampaignDTO object or dictionary with updated campaign data
-                Required fields: name, content, unsubscribe_text, segment, scheduling
-                Optional fields: from_name, can_unsubscribe, is_link_tracking, sms_sending_profile_id
+                Required fields:
+                  - id: SMS campaign ID
+                  - name: SMS campaign name
+                  - content: SMS content
+                  - unsubscribe_text: Unsubscribe text
+                  - segment: Campaign segmentation and sending restrictions
+                    Can be a dictionary or ApiSmsCampaignSegment object
+                  - scheduling: Campaign scheduling information
+                    Can be a dictionary or SMSCampaignSchedulingDTO object
+                Optional fields:
+                  - from_name: Sender name
+                  - can_unsubscribe: Whether unsubscription link is added
+                  - is_link_tracking: Whether links are tracked
                 
         Returns:
             Updated SMS campaign data
             
         Example:
             ```python
-            # Update an SMS campaign using a DTO
-            from active_trail.dto.sms_campaigns import SMSCampaignDTO, SMSCampaignSegmentDTO, SMSCampaignSchedulingDTO
-            from datetime import datetime
-            
-            # Create segment and scheduling objects
-            segment = SMSCampaignSegmentDTO(
-                groups=[123, 456]
+            from active_trail import ActiveTrailClient
+            from active_trail.dto.sms_campaigns import (
+                SMSCampaignDTO, 
+                ApiSmsCampaignSegment, 
+                SMSCampaignSchedulingDTO
             )
             
-            scheduling = SMSCampaignSchedulingDTO(
-                scheduled_date=datetime(2023, 12, 1, 10, 0, 0),
-                scheduled_time_zone="50",
-                is_sent=False
+            # Initialize the client
+            client = ActiveTrailClient(api_key="your_api_key")
+            
+            # Get the existing campaign first
+            campaign_id = 123
+            existing_campaign = client.sms_campaigns.get_campaign(campaign_id)
+            
+            # Update the campaign content
+            updated_campaign = SMSCampaignDTO(
+                id=campaign_id,
+                name=existing_campaign['name'],
+                content="Updated content: Get 30% off with code SUMMER30",
+                unsubscribe_text=existing_campaign['unsubscribe_text'],
+                segment=existing_campaign['segment'],
+                scheduling=existing_campaign['scheduling'],
+                from_name=existing_campaign['from_name'],
+                can_unsubscribe=existing_campaign['can_unsubscribe'],
+                is_link_tracking=existing_campaign['is_link_tracking']
             )
             
-            campaign = SMSCampaignDTO(
-                name="Updated Campaign Name",
-                content="New message content",
-                unsubscribe_text="Text STOP to opt out",
-                segment=segment,
-                scheduling=scheduling,
-                from_name="YourBrand",
-                can_unsubscribe=True,
-                is_link_tracking=True
-            )
+            # Update the campaign
+            client.sms_campaigns.update(updated_campaign)
+            print(f"Campaign {campaign_id} has been updated.")
             
-            result = client.sms_campaigns.update(123, campaign)
+            # Or you can update using a dictionary
+            updated_campaign_dict = {
+                "id": campaign_id,
+                "name": existing_campaign['name'],
+                "content": "Updated content: Get 30% off with code SUMMER30",
+                "unsubscribe_text": existing_campaign['unsubscribe_text'],
+                "segment": existing_campaign['segment'],
+                "scheduling": existing_campaign['scheduling'],
+                "from_name": existing_campaign['from_name'],
+                "can_unsubscribe": existing_campaign['can_unsubscribe'],
+                "is_link_tracking": existing_campaign['is_link_tracking']
+            }
+            
+            client.sms_campaigns.update(updated_campaign_dict)
             ```
         """
-        if isinstance(campaign, SMSCampaignDTO):
-            campaign_data = campaign.to_dict()
-        else:
-            campaign_data = campaign
+        campaign_data = self._validate_and_convert(campaign, SMSCampaignDTO)
+        
+        campaign_id = campaign_data.get('id')
+        if not campaign_id:
+            logger.error("No campaign ID provided for update operation")
+            raise ValueError("Campaign ID is required for updates")
             
-        return self.client.put(f"{self.resource_path}/{campaign_id}", json=campaign_data)
+        logger.info(f"Updating SMS campaign with ID: {campaign_id}")
+        logger.debug(f"Update data: {campaign_data}")
+        
+        response = self.client.put(f"{self.resource_path}/Campaign/{campaign_id}", json=campaign_data)
+        logger.info(f"Successfully updated SMS campaign with ID: {campaign_id}")
+        return response
     
-    def delete(self, campaign_id: int) -> Dict[str, Any]:
+    def get_estimate(self, campaign_id: int) -> int:
         """
-        Delete an SMS campaign.
+        Calculate the estimated number of messages for a given campaign.
+        
+        Can be used only for campaigns that were not sent yet.
         
         Args:
-            campaign_id: The ID of the SMS campaign to delete
+            campaign_id: SMS campaign ID
             
         Returns:
-            Response data
+            Estimated number of messages
             
         Example:
             ```python
-            # Delete an SMS campaign
-            client.sms_campaigns.delete(123)
-            ```
-        """
-        return self.client.delete(f"{self.resource_path}/{campaign_id}")
-    
-    def schedule(self, campaign_id: int, scheduled_time: str) -> Dict[str, Any]:
-        """
-        Schedule an SMS campaign for delivery.
+            # Get campaign estimate
+            campaign_id = 123
+            estimate = client.sms_campaigns.get_estimate(campaign_id)
+            print(f"Estimated number of messages: {estimate}")
+            ```        """
+        logger.info(f"Getting estimate for SMS campaign with ID: {campaign_id}")
         
-        Args:
-            campaign_id: The ID of the SMS campaign to schedule
-            scheduled_time: ISO format datetime string for when to send the campaign
-                
-        Returns:
-            Scheduling confirmation data
-            
-        Example:
-            ```python
-            # Schedule an SMS campaign for tomorrow
-            import datetime
-            
-            tomorrow = datetime.datetime.now() + datetime.timedelta(days=1)
-            result = client.sms_campaigns.schedule(123, tomorrow.isoformat())
-            ```
-        """
-        schedule = SMSCampaignScheduleDTO(
-            campaign_id=campaign_id,
-            scheduled_time=scheduled_time
-        )
-            
-        return self.client.post(
-            f"{self.resource_path}/{campaign_id}/schedule", 
-            json=schedule.to_dict()
-        )
-    
-    def send_now(self, campaign_id: int) -> Dict[str, Any]:
-        """
-        Send an SMS campaign immediately.
+        response = self.client.get(f"{self.resource_path}/Campaign/{campaign_id}/estimate")
+        logger.debug(f"Estimate for campaign {campaign_id}: {response}")
+        return response
         
-        Args:
-            campaign_id: The ID of the SMS campaign to send
-                
-        Returns:
-            Response data
-            
-        Example:
-            ```python
-            # Send an SMS campaign immediately
-            result = client.sms_campaigns.send_now(123)
-            ```
-        """
-        send_request = SMSCampaignSendDTO(campaign_id=campaign_id)
-        return self.client.post(
-            f"{self.resource_path}/{campaign_id}/send",
-            json=send_request.to_dict()
-        )
-    
-    def test(self, campaign_id: int, recipients: List[str]) -> Dict[str, Any]:
-        """
-        Send a test SMS campaign to specified recipients.
-        
-        Args:
-            campaign_id: The ID of the SMS campaign to test
-            recipients: List of phone numbers to send the test to
-                
-        Returns:
-            Test results
-            
-        Example:
-            ```python
-            # Send a test SMS
-            result = client.sms_campaigns.test(123, ["1234567890", "9876543210"])
-            ```
-        """
-        test_request = SMSCampaignTestDTO(
-            campaign_id=campaign_id,
-            recipients=recipients
-        )
-            
-        return self.client.post(
-            f"{self.resource_path}/{campaign_id}/test",
-            json=test_request.to_dict()
-        )
-    
-    def get_statistics(self, campaign_id: int) -> Dict[str, Any]:
-        """
-        Get statistics for a specific SMS campaign.
-        
-        Args:
-            campaign_id: The ID of the SMS campaign
-                
-        Returns:
-            SMS campaign statistics
-            
-        Example:
-            ```python
-            # Get statistics for an SMS campaign
-            stats = client.sms_campaigns.get_statistics(123)
-            print(f"Sent: {stats['recipients']}, Delivered: {stats['delivered']}")
-            ```
-        """
-        return self.client.get(f"{self.resource_path}/{campaign_id}/statistics")
-    
-    def get_recipients(
-        self,
-        campaign_id: int,
-        status: Optional[str] = None,
-        limit: Optional[int] = None,
-        offset: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Get recipients for a specific SMS campaign with their status.
-        
-        Args:
-            campaign_id: The ID of the SMS campaign
-            status: Filter by delivery status (e.g. 'delivered', 'failed')
-            limit: Maximum number of records to retrieve
-            offset: Offset for pagination
-                
-        Returns:
-            Campaign recipients data
-            
-        Example:
-            ```python
-            # Get all recipients with 'delivered' status
-            recipients = client.sms_campaigns.get_recipients(123, status='delivered')
-            ```
-        """
-        request = SMSCampaignRecipientsRequestDTO(
-            campaign_id=campaign_id,
-            status=status,
-            limit=limit,
-            offset=offset
-        )
-            
-        return self.client.get(
-            f"{self.resource_path}/{campaign_id}/recipients", 
-            params=request.to_dict()
-        )
-    
-    def get_delivery_status(
-        self,
-        campaign_id: int,
-        contact_id: Optional[int] = None
-    ) -> Dict[str, Any]:
-        """
-        Get delivery status for an SMS campaign.
-        
-        Args:
-            campaign_id: The ID of the SMS campaign
-            contact_id: Optional contact ID to filter results
-                
-        Returns:
-            Delivery status information
-            
-        Example:
-            ```python
-            # Get delivery status for an SMS campaign
-            status = client.sms_campaigns.get_delivery_status(123)
-            
-            # Get delivery status for a specific contact
-            contact_status = client.sms_campaigns.get_delivery_status(123, 456)
-            ```
-        """
-        params = {}
-        if contact_id is not None:
-            params["contact_id"] = contact_id
-            
-        return self.client.get(f"{self.resource_path}/Campaign/{campaign_id}/delivery-status", params=params)
-    
-    def get_report(self, campaign_id: int, get_contacts: bool = False) -> Dict[str, Any]:
-        """
-        Get a summary report for a specific SMS campaign.
-        
-        This endpoint provides comprehensive metrics about the campaign performance,
-        including delivery rates, errors, and engagement statistics.
-        
-        Args:
-            campaign_id: The ID of the SMS campaign
-            get_contacts: If True, get contacts report for the campaign
-        Returns:
-            Dictionary of ApiSmsCampaignOverviewInfo: SMS campaign report with performance metrics including:
-                - sent: Number of messages sent
-                - delivered: Number of messages successfully delivered
-                - errors: Number of messages with delivery errors
-                - unsubscribed: Number of recipients who unsubscribed
-                - error_rate: Error rate as a percentage
-                - sum_clicks: Total number of link clicks
-                - clickers: Number of unique clickers
-                - click_rate: Click rate as a percentage
-            
-        Example:
-            ```python
-            # Get report for an SMS campaign
-            report = client.sms_campaigns.get_report(123)
-            print(f"Delivered: {report['delivered']}, Errors: {report['errors']}")
-            print(f"Click rate: {report['click_rate']}%")
-            ```
-        """
-        if get_contacts:
-            return self.client.get(f"smscampaignreport/{campaign_id}/Delivered", params={"id": campaign_id})
-        return self.client.get(f"smscampaignreport/{campaign_id}")
-    
-    # region Operational Messages
     def send_operational_message(
         self, 
-        message: Union[SMSOperationalMessageDTO, Dict[str, Any]]
+        message: Union[Dict[str, Any], SMSOperationalMessageDTO]
     ) -> Dict[str, Any]:
         """
         Send an operational SMS message to specific mobile numbers.
@@ -459,15 +412,18 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             message: SMSOperationalMessageDTO object or dictionary with message data
                 Required fields:
                     - details: SMS message details (name, content, unsubscribe_text, etc.)
+                      Can be a dictionary or ApiSMSCampaignDetailsDTO object
                     - scheduling: Message scheduling information
+                      Can be a dictionary or ApiSmsCampaignSchedulingDTO object
                     - mobiles: List of mobile phone numbers to receive the message
+                      Can be a list of dictionaries or ApiSMSMobileDTO objects
                 
         Returns:
             Created SMS operational message data
             
         Example:
             ```python
-            # Send an operational SMS message
+            # Send an operational SMS message using objects
             from active_trail.dto.sms_campaigns import (
                 ApiSMSMobileDTO, 
                 ApiSMSCampaignDetailsDTO, 
@@ -505,14 +461,39 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             # Send the message
             response = client.sms_campaigns.send_operational_message(message)
             print(f"Sent message with ID: {response['id']}")
+            
+            # Or using dictionaries
+            message_dict = {
+                "details": {
+                    "name": "Password Reset",
+                    "content": "Your verification code is 123456",
+                    "unsubscribe_text": "Reply STOP to unsubscribe",
+                    "from_name": "MyCompany",
+                    "can_unsubscribe": True
+                },
+                "scheduling": {
+                    "send_now": True
+                },
+                "mobiles": [
+                    {"phone_number": "+1234567890"},
+                    {"phone_number": "+9876543210"}
+                ]
+            }
+            
+            response = client.sms_campaigns.send_operational_message(message_dict)
             ```
         """
-        if isinstance(message, SMSOperationalMessageDTO):
-            message_data = message.to_dict()
-        else:
-            message_data = message
-            
-        return self.client.post(f"{self.resource_path}/OperationalMessage", json=message_data)
+        message_data = self._validate_and_convert(message, SMSOperationalMessageDTO)
+        
+        message_name = (message_data.get('details', {}) or {}).get('name', 'unnamed')
+        logger.info(f"Sending operational SMS message: {message_name}")
+        
+        num_recipients = len(message_data.get('mobiles', []))
+        logger.debug(f"Sending to {num_recipients} recipients")
+        
+        response = self.client.post(f"{self.resource_path}/OperationalMessage", json=message_data)
+        logger.info(f"Sent operational SMS message with ID: {response.get('id')}")
+        return response
     
     def get_operational_message(self, message_id: int) -> Dict[str, Any]:
         """
@@ -531,12 +512,16 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             print(f"Message content: {message['content']}")
             ```
         """
-        return self.client.get(f"{self.resource_path}/OperationalMessage/{message_id}")
+        logger.info(f"Getting operational SMS message with ID: {message_id}")
+        
+        response = self.client.get(f"{self.resource_path}/OperationalMessage/{message_id}")
+        logger.debug(f"Retrieved operational message: {response.get('name')}")
+        return response
     
     def update_operational_message(
         self,
         message_id: int,
-        message: Union[SMSOperationalMessageDTO, Dict[str, Any]]
+        message: Union[Dict[str, Any], SMSOperationalMessageDTO]
     ) -> Dict[str, Any]:
         """
         Update an existing SMS operational message that has not been sent yet.
@@ -550,7 +535,7 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             
         Example:
             ```python
-            # Update an SMS operational message
+            # Update an SMS operational message using objects
             from active_trail.dto.sms_campaigns import (
                 ApiSMSMobileDTO, 
                 ApiSMSCampaignDetailsDTO, 
@@ -583,12 +568,33 @@ class SMSCampaignsAPI(CampaignBaseAPI):
             
             # Update the message
             result = client.sms_campaigns.update_operational_message(123, message)
+            
+            # Or using a dictionary
+            message_dict = {
+                "details": {
+                    "name": "Updated Password Reset",
+                    "content": "Your new verification code is 654321",
+                    "unsubscribe_text": "Reply STOP to unsubscribe",
+                    "from_name": "MyCompany",
+                    "can_unsubscribe": True
+                },
+                "scheduling": {
+                    "send_now": True
+                },
+                "mobiles": [
+                    {"phone_number": "+1234567890"}
+                ]
+            }
+            
+            result = client.sms_campaigns.update_operational_message(123, message_dict)
             ```
         """
-        if isinstance(message, SMSOperationalMessageDTO):
-            message_data = message.to_dict()
-        else:
-            message_data = message
-            
-        return self.client.put(f"{self.resource_path}/OperationalMessage/{message_id}", json=message_data) 
-    # endregion Operational Messages
+        message_data = self._validate_and_convert(message, SMSOperationalMessageDTO)
+        
+        message_name = (message_data.get('details', {}) or {}).get('name', 'unnamed')
+        logger.info(f"Updating operational SMS message with ID {message_id}: {message_name}")
+        
+        response = self.client.put(f"{self.resource_path}/OperationalMessage/{message_id}", json=message_data)
+        logger.info(f"Successfully updated operational SMS message with ID: {message_id}")
+        return response 
+
