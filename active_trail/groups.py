@@ -151,77 +151,116 @@ class GroupsAPI(CrudAPI):
             params=request.to_dict()
         )
     
-    def add_contact(self, group_id: int, sms: str, status: str = "active") -> Dict[str, Any]:
+    def add_contact(
+        self,
+        group_id: int,
+        sms: str,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        status: Optional[str] = None,
+        sms_status: Optional[str] = None,
+        campaign_id: Optional[int] = None,
+        subscribe_ip: Optional[str] = None,
+        double_optin: Optional[Dict[str, str]] = None,
+        is_deleted: Optional[bool] = None
+    ) -> Dict[str, Any]:
         """
         Add a contact to a group.
         
         Args:
             group_id: The ID of the group
             sms: The SMS number of the contact to add
-            status: The status of the contact in the group (default: "active")
+            first_name: Contact's first name
+            last_name: Contact's last name
+            status: Contact's status
+            sms_status: Contact's SMS status
+            campaign_id: Campaign ID to send to the imported contact
+            subscribe_ip: The Subscribe IP
+            double_optin: Double opt-in configuration
+            is_deleted: If true - contact will be deleted
             
         Returns:
-            Response data
+            Response data containing the added contact information
         """
         request = GroupAddContactDTO(
             group_id=group_id,
-            sms=sms
+            sms=sms,
+            first_name=first_name,
+            last_name=last_name,
+            status=status,
+            sms_status=sms_status,
+            campaign_id=campaign_id,
+            subscribe_ip=subscribe_ip,
+            double_optin=double_optin,
+            is_deleted=is_deleted
         )
-        
-        # Status might need special handling if not part of the DTO
-        data = request.to_dict()
-        data["status"] = status
         
         return self.client.post(
-            f"{self.resource_path}/{group_id}/contacts/{sms}",
-            json=data
+            f"{self.resource_path}/{group_id}/members",
+            json=request.to_dict()
         )
     
-    def remove_contact(self, group_id: int, sms: str) -> Dict[str, Any]:
+    def remove_contact_from_group(self, group_id: int, contact_id: int) -> Dict[str, Any]:
         """
         Remove a contact from a group.
         
         Args:
             group_id: The ID of the group
-            sms: The SMS number of the contact to remove
+            contact_id: The ID of the contact to remove
             
         Returns:
             Response data
         """
-        return self.client.delete(f"{self.resource_path}/{group_id}/contacts/{sms}")
-    
+        return self.client.delete(f"{self.resource_path}/{group_id}/members/{contact_id}")
+    def _get_contact_dict_to_add(self, contact: dict) -> dict:
+        return {
+            "externalId": contact["id"],
+            "externalName": f"{contact['first_name']}"
+        }
+
+    def add_multiple_contacts_to_group_external(
+        self,
+        group_id: int,
+        contacts: List[dict]
+    ) -> bool:
+        """
+        Add multiple contacts to a group in a single operation.
+        """
+        contacts_to_add = [self._get_contact_dict_to_add(contact) for contact in contacts ]        
+        return self.client.post(f"external/group/{group_id}", json=contacts_to_add)
+            
     def add_multiple_contacts(
         self,
         group_id: int, 
-        sms_numbers: List[str],
+        contacts: List[dict],
         status: str = "active"
-    ) -> Dict[str, Any]:
+    ) -> bool:
         """
         Add multiple contacts to a group in a single operation.
         
         Args:
             group_id: The ID of the group
-            sms_numbers: List of SMS numbers to add to the group
+            contacts: List of contact dictionaries with sms, first_name, and last_name keys
             status: The status of the contacts in the group (default: "active")
             
         Returns:
-            Response data
+            True if all contacts were added successfully, False otherwise
         """
-        request = GroupAddMultipleContactsDTO(
-            group_id=group_id,
-            sms=sms_numbers
-        )
-        
-        # Status might need special handling if not part of the DTO
-        data = request.to_dict()
-        data["status"] = status
-        
-        return self.client.post(
-            f"{self.resource_path}/{group_id}/contacts/batch",
-            json=data
-        )
+        try:
+            for contact in contacts:
+                self.add_contact(
+                    group_id=group_id, 
+                    sms=contact["sms"],
+                    first_name=contact.get("first_name"),
+                    last_name=contact.get("last_name"),
+                    status=status
+                )
+            return True
+        except Exception as e:
+            print(f"Error adding contact: {contact} to group: {group_id}: {e}")
+            return False
     
-    def remove_multiple_contacts(self, group_id: int, sms_numbers: List[str]) -> Dict[str, Any]:
+    def remove_multiple_contacts(self, group_id: int, contacts: List[dict]) -> bool:
         """
         Remove multiple contacts from a group in a single operation.
         
@@ -232,15 +271,13 @@ class GroupsAPI(CrudAPI):
         Returns:
             Response data
         """
-        request = GroupRemoveMultipleContactsDTO(
-            group_id=group_id,
-            sms=sms_numbers
-        )
-        
-        return self.client.delete(
-            f"{self.resource_path}/{group_id}/contacts/batch",
-            json=request.to_dict()
-        )
+        try:
+            for contact in contacts:
+                self.remove_contact_from_group(group_id, contact["id"])
+            return True
+        except Exception as e:
+            print(f"Error removing contact: {contact} from group: {group_id}: {e}")
+            return False
 
     def get_members(
         self,

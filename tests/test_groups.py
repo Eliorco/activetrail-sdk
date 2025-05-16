@@ -243,16 +243,34 @@ class TestGroupsAPI(unittest.TestCase):
     def test_add_contact(self):
         """Test add_contact method."""
         # Set up mock return value
-        expected_result = {"status": "success"}
+        expected_result = {
+            "id": 1,
+            "state": "Active",
+            "is_optined": True,
+            "sms": "+972501234567",
+            "first_name": "John",
+            "last_name": "Doe"
+        }
         self.mock_client.post.return_value = expected_result
         
         # Call the method with default status
-        result = self.groups_api.add_contact(123, "+972501234567")
+        result = self.groups_api.add_contact(
+            group_id=123,
+            sms="+972501234567",
+            first_name="John",
+            last_name="Doe",
+            status="Active"
+        )
         
         # Verify method called correctly
         self.mock_client.post.assert_called_once_with(
-            "groups/123/contacts/+972501234567", 
-            json={"groupId": 123, "sms": "+972501234567", "status": "active"}
+            "groups/123/members",
+            json={
+                "sms": "+972501234567",
+                "first_name": "John",
+                "last_name": "Doe",
+                "status": "Active"
+            }
         )
         
         # Verify result
@@ -262,25 +280,36 @@ class TestGroupsAPI(unittest.TestCase):
         self.mock_client.post.reset_mock()
         
         # Call the method with custom status
-        result = self.groups_api.add_contact(123, "+972501234567", status="unsubscribed")
+        result = self.groups_api.add_contact(
+            group_id=123,
+            sms="+972501234567",
+            first_name="John",
+            last_name="Doe",
+            status="Unsubscribed"
+        )
         
         # Verify method called correctly
         self.mock_client.post.assert_called_once_with(
-            "groups/123/contacts/+972501234567", 
-            json={"groupId": 123, "sms": "+972501234567", "status": "unsubscribed"}
+            "groups/123/members",
+            json={
+                "sms": "+972501234567",
+                "first_name": "John",
+                "last_name": "Doe",
+                "status": "Unsubscribed"
+            }
         )
     
     def test_remove_contact(self):
-        """Test remove_contact method."""
+        """Test remove_contact_from_group method."""
         # Set up mock return value
         expected_result = {}
         self.mock_client.delete.return_value = expected_result
         
         # Call the method
-        result = self.groups_api.remove_contact(123, "+972501234567")
+        result = self.groups_api.remove_contact_from_group(123, 456)
         
         # Verify method called correctly
-        self.mock_client.delete.assert_called_once_with("groups/123/contacts/+972501234567")
+        self.mock_client.delete.assert_called_once_with("groups/123/members/456")
         
         # Verify result
         self.assertEqual(result, expected_result)
@@ -290,56 +319,118 @@ class TestGroupsAPI(unittest.TestCase):
     def test_add_multiple_contacts(self):
         """Test add_multiple_contacts method."""
         # Set up mock return value
-        expected_result = {"status": "success", "processed": 2}
+        expected_result = {
+            "id": 1,
+            "state": "Active",
+            "is_optined": True,
+            "sms": "+972501234567",
+            "first_name": "John",
+            "last_name": "Doe"
+        }
         self.mock_client.post.return_value = expected_result
         
         # Contact numbers to add
-        sms_numbers = ["+972501234567", "+972541234567"]
+        contacts = [
+            {
+                "sms": "+972501234567",
+                "first_name": "John",
+                "last_name": "Doe"
+            },
+            {
+                "sms": "+972541234567",
+                "first_name": "Jane",
+                "last_name": "Smith"
+            }
+        ]
         
         # Call the method with default status
-        result = self.groups_api.add_multiple_contacts(123, sms_numbers)
+        result = self.groups_api.add_multiple_contacts(123, contacts)
         
-        # Verify method called correctly
-        self.mock_client.post.assert_called_once_with(
-            "groups/123/contacts/batch", 
-            json={"groupId": 123, "sms": sms_numbers, "status": "active"}
+        # Verify method called correctly for each contact
+        self.assertEqual(self.mock_client.post.call_count, 2)
+        
+        # Verify first call
+        self.mock_client.post.assert_any_call(
+            "groups/123/members",
+            json={
+                "sms": "+972501234567",
+                "first_name": "John",
+                "last_name": "Doe",
+                "status": "active"
+            }
+        )
+        
+        # Verify second call
+        self.mock_client.post.assert_any_call(
+            "groups/123/members",
+            json={
+                "sms": "+972541234567",
+                "first_name": "Jane",
+                "last_name": "Smith",
+                "status": "active"
+            }
         )
         
         # Verify result
-        self.assertEqual(result, expected_result)
+        self.assertTrue(result)
         
         # Reset mock
         self.mock_client.post.reset_mock()
         
         # Call the method with custom status
-        result = self.groups_api.add_multiple_contacts(123, sms_numbers, status="unsubscribed")
+        result = self.groups_api.add_multiple_contacts(123, contacts, status="unsubscribed")
         
-        # Verify method called correctly
-        self.mock_client.post.assert_called_once_with(
-            "groups/123/contacts/batch", 
-            json={"groupId": 123, "sms": sms_numbers, "status": "unsubscribed"}
+        # Verify method called correctly for each contact
+        self.assertEqual(self.mock_client.post.call_count, 2)
+        
+        # Verify first call
+        self.mock_client.post.assert_any_call(
+            "groups/123/members",
+            json={
+                "sms": "+972501234567",
+                "first_name": "John",
+                "last_name": "Doe",
+                "status": "unsubscribed"
+            }
+        )
+        
+        # Verify second call
+        self.mock_client.post.assert_any_call(
+            "groups/123/members",
+            json={
+                "sms": "+972541234567",
+                "first_name": "Jane",
+                "last_name": "Smith",
+                "status": "unsubscribed"
+            }
         )
     
     def test_remove_multiple_contacts(self):
         """Test remove_multiple_contacts method."""
         # Set up mock return value
-        expected_result = {"status": "success", "processed": 2}
+        expected_result = {}
         self.mock_client.delete.return_value = expected_result
         
-        # Contact numbers to remove
-        sms_numbers = ["+972501234567", "+972541234567"]
+        # Contact IDs to remove
+        contacts = [
+            {"id": 456, "sms": "+972501234567"},
+            {"id": 789, "sms": "+972541234567"}
+        ]
         
         # Call the method
-        result = self.groups_api.remove_multiple_contacts(123, sms_numbers)
+        result = self.groups_api.remove_multiple_contacts(123, contacts)
         
-        # Verify method called correctly
-        self.mock_client.delete.assert_called_once_with(
-            "groups/123/contacts/batch", 
-            json={"groupId": 123, "sms": sms_numbers}
-        )
+        # Verify method called correctly for each contact
+        self.assertEqual(self.mock_client.delete.call_count, 2)
+        
+        # Verify first call
+        self.mock_client.delete.assert_any_call("groups/123/members/456")
+        
+        # Verify second call
+        self.mock_client.delete.assert_any_call("groups/123/members/789")
         
         # Verify result
-        self.assertEqual(result, expected_result)
+        self.assertTrue(result)
     #endregion
 
 
